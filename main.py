@@ -71,8 +71,6 @@ class ImageAnalyser:
                     entrance = (x, y)
                     trace = current_class
                     while True:
-                        # for i in range(prev_move, prev_move + len(increments)):
-                        # for i in range(prev_move + len(increments), prev_move, -1):
                         for i in range(prev_move + len(increments) + 1, prev_move + 1, -1):
                             i = i % len(increments)
                             if img[x + increments[i][0]][y + increments[i][1]] == 1:
@@ -102,20 +100,9 @@ class ImageAnalyser:
                                         break
                                 else:
                                     continue
-                                # trace = img[x][y] + 1
-                                # img[x][y] = current_class
-                                # x += increments[prev_move][0]
-                                # y += increments[prev_move][1]
                                 break
                             else:
                                 break
-                            """for i in range(prev_move - 1, prev_move + len(increments) - 1):
-                                i = i % len(increments)
-                                if img[x + increments[i][0]][y + increments[i][1]] == current_class:
-                                    prev_move = i
-                                    break
-                            if x == entrance[0] and y == entrance[1]:
-                                break"""
                         img[x][y] = trace
                         x += increments[prev_move][0]
                         y += increments[prev_move][1]
@@ -129,10 +116,9 @@ class ImageAnalyser:
     def calculate_signs(img, obj_count=2):
         if type(img) is not np.ndarray:
             img = np.array(img)
-        collection = np.zeros((obj_count-2, 7), dtype=float)
+        collection = np.zeros((obj_count-2, 5), dtype=float)
 
         weights = np.indices((img.shape[0], img.shape[1]))
-        # TODO: fix elongation sign
         for i in range(2, obj_count):
             masked = np.where(img == i, 1, 0).astype(np.uint8)
             indices = np.argwhere(img == i)
@@ -141,50 +127,29 @@ class ImageAnalyser:
             img_slice = np.pad(masked[i_start[0]:i_stop[0], i_start[1]:i_stop[1]], ((1, 1), (1, 1)),
                                mode='constant', constant_values=0)
 
+            # mc = (
+            #         np.sum(masked * weights[1], dtype=np.uint32) / collection[i - 2][1],
+            #         np.sum(masked * weights[0], dtype=np.uint32) / collection[i - 2][1]
+            # )
+
             origin = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=img_slice.dtype)
             opened = ImageAnalyser._spatial_correlation(img_slice, origin)
 
             collection[i - 2][0] = \
                 np.count_nonzero(np.logical_and(np.logical_not(img_slice.astype(bool)), opened.astype(bool)))
             collection[i - 2][1] = np.count_nonzero(img_slice)
-            collection[i - 2][2] = np.sum(masked * weights[1], dtype=np.uint32) / collection[i - 2][1]
-            collection[i - 2][3] = np.sum(masked * weights[0], dtype=np.uint32) / collection[i - 2][1]
-            collection[i - 2][4] = collection[i - 2][0]**2/collection[i - 2][1]
+            collection[i - 2][2] = collection[i - 2][0]**2/collection[i - 2][1]
             m1 = (
-                (weights[1] - collection[i - 2][2]) * masked,
-                (weights[0] - collection[i - 2][3]) * masked
+                (weights[1] - np.sum(masked * weights[1], dtype=np.uint32) / collection[i - 2][1]) * masked,
+                (weights[0] - np.sum(masked * weights[0], dtype=np.uint32) / collection[i - 2][1]) * masked
             )
             mij = (np.sum(m1[0] ** 2), np.sum(m1[0] * m1[1]), np.sum(m1[1] ** 2))
             temp = np.sqrt(((mij[0] - mij[2]) ** 2 + 4 * mij[1] ** 2))
 
-            collection[i - 2][5] = (mij[0] + mij[2] - temp) / (mij[0] + mij[2] + temp)
-            collection[i - 2][6] = (np.arctan(2 * mij[1] / (mij[0] - mij[2]))) / 2
-            if np.any(np.isnan(collection[i - 2][6])):
-                collection[i - 2][6] = 0
-            collection[i - 2][2] = 0
-            collection[i - 2][3] = 0
-            # masked = np.where(img == i, 1, 0).astype(np.uint8)
-            # indices = np.argwhere(img == i)
-            # i_start = np.amin(indices, axis=0)
-            # i_stop = np.amax(indices, axis=0) + 1
-            # img_slice = np.pad(masked[i_start[0]:i_stop[0], i_start[1]:i_stop[1]], ((1, 1), (1, 1)),
-            #                    mode='constant', constant_values=0)
-            # collection[i - 2][0] = ImageAnalyser._perimeter(img_slice, normalized=True)
-            # collection[i - 2][1] = ImageAnalyser._area(img_slice, 1)
-            # mc = ImageAnalyser._mass_center(masked, normalized=True, area=collection[i - 2][1])
-            # collection[i - 2][2] = mc[0]
-            # collection[i - 2][3] = mc[1]
-            # collection[i - 2][4] = ImageAnalyser._density(img, i, collection[i - 2][0], collection[i - 2][1])
-
-            # mc = ImageAnalyser._mass_center(img, i, area)
-            # layout = ImageAnalyser._elongation(img, i, mc)
-            # collection[i-2][0] = area
-            # collection[i-2][1] = mc[0]
-            # collection[i-2][2] = mc[1]
-            # collection[i-2][3] = ImageAnalyser._perimeter(img, i)
-            # collection[i-2][4] = ImageAnalyser._density(img, i, collection[i-2][3], collection[i-2][0])
-            # collection[i-2][5] = layout[0]
-            # collection[i-2][6] = layout[1]
+            collection[i - 2][3] = (mij[0] + mij[2] - temp) / (mij[0] + mij[2] + temp)
+            collection[i - 2][4] = (np.arctan(2 * mij[1] / (mij[0] - mij[2]))) / 2
+            if np.any(np.isnan(collection[i - 2][4])):
+                collection[i - 2][4] = 0
         return collection
 
     @staticmethod
