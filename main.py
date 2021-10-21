@@ -22,6 +22,38 @@ class ImageTransformer:
         return np.where(img < threshold, 0, 1)
 
 
+class MinMaxFilter:
+    @staticmethod
+    def _apply_pooled(arr, call, fill_val, pool=3):
+        if type(arr) is not np.ndarray:
+            arr = np.array(arr)
+        pool = int(pool) - 1
+        result = np.full(shape=(arr.shape[0]-pool, *arr.shape[1:]), fill_value=fill_val, dtype=arr.dtype)
+        for i in range(pool):
+            result = call(result, arr[i:-(pool-i)])
+        return result
+
+    @staticmethod
+    def minmax_filter(img, pool=(3, 3)):
+        if type(img) is not np.ndarray:
+            img = np.array(img)
+        _hb = int(pool[0]/2)
+        _vb = int(pool[1]/2)
+
+        axes_t = np.arange(len(img.shape))
+        axes_t[0] = 1
+        axes_t[1] = 0
+        result = np.pad(img, ((_hb, _hb), (_vb, _vb)), mode='constant', constant_values=np.iinfo(img.dtype).max)
+        result = MinMaxFilter._apply_pooled(result, np.minimum, np.iinfo(result.dtype).max, pool[0])
+        result = np.transpose(result, axes=axes_t)
+        result = MinMaxFilter._apply_pooled(result, np.minimum, np.iinfo(result.dtype).max, pool[1])
+        result = np.pad(result, ((_vb, _vb), (_hb, _hb)), mode='constant', constant_values=np.iinfo(img.dtype).min)
+        result = MinMaxFilter._apply_pooled(result, np.maximum, np.iinfo(result.dtype).min, pool[1])
+        result = np.transpose(result, axes=axes_t)
+        result = MinMaxFilter._apply_pooled(result, np.maximum, np.iinfo(result.dtype).min, pool[0])
+        return result
+
+
 class ImageAnalyser:
     # TODO: add iterative object highlighting described in lab manual
     @staticmethod
@@ -98,15 +130,59 @@ class ImageAnalyser:
         if type(img) is not np.ndarray:
             img = np.array(img)
         collection = np.zeros((obj_count-2, 7), dtype=float)
+
+        weights = np.indices((img.shape[0], img.shape[1]))
         # TODO: fix elongation sign
         for i in range(2, obj_count):
-            mc = ImageAnalyser._mass_center(img, i)
+            masked = np.where(img == i, 1, 0).astype(np.uint8)
+            indices = np.argwhere(img == i)
+            i_start = np.amin(indices, axis=0)
+            i_stop = np.amax(indices, axis=0) + 1
+            img_slice = np.pad(masked[i_start[0]:i_stop[0], i_start[1]:i_stop[1]], ((1, 1), (1, 1)),
+                               mode='constant', constant_values=0)
+
+            origin = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=img_slice.dtype)
+            opened = ImageAnalyser._spatial_correlation(img_slice, origin)
+
+            collection[i - 2][0] = \
+                np.count_nonzero(np.logical_and(np.logical_not(img_slice.astype(bool)), opened.astype(bool)))
+            collection[i - 2][1] = np.count_nonzero(img_slice)
+            collection[i - 2][2] = np.sum(masked * weights[1], dtype=np.uint32) / collection[i - 2][1]
+            collection[i - 2][3] = np.sum(masked * weights[0], dtype=np.uint32) / collection[i - 2][1]
+            collection[i - 2][4] = collection[i - 2][0]**2/collection[i - 2][1]
+            m1 = (
+                (weights[1] - collection[i - 2][2]) * masked,
+                (weights[0] - collection[i - 2][3]) * masked
+            )
+            mij = (np.sum(m1[0] ** 2), np.sum(m1[0] * m1[1]), np.sum(m1[1] ** 2))
+            temp = np.sqrt(((mij[0] - mij[2]) ** 2 + 4 * mij[1] ** 2))
+
+            collection[i - 2][5] = (mij[0] + mij[2] - temp) / (mij[0] + mij[2] + temp)
+            collection[i - 2][6] = (np.arctan(2 * mij[1] / (mij[0] - mij[2]))) / 2
+            if np.any(np.isnan(collection[i - 2][6])):
+                collection[i - 2][6] = 0
+            collection[i - 2][2] = 0
+            collection[i - 2][3] = 0
+            # masked = np.where(img == i, 1, 0).astype(np.uint8)
+            # indices = np.argwhere(img == i)
+            # i_start = np.amin(indices, axis=0)
+            # i_stop = np.amax(indices, axis=0) + 1
+            # img_slice = np.pad(masked[i_start[0]:i_stop[0], i_start[1]:i_stop[1]], ((1, 1), (1, 1)),
+            #                    mode='constant', constant_values=0)
+            # collection[i - 2][0] = ImageAnalyser._perimeter(img_slice, normalized=True)
+            # collection[i - 2][1] = ImageAnalyser._area(img_slice, 1)
+            # mc = ImageAnalyser._mass_center(masked, normalized=True, area=collection[i - 2][1])
+            # collection[i - 2][2] = mc[0]
+            # collection[i - 2][3] = mc[1]
+            # collection[i - 2][4] = ImageAnalyser._density(img, i, collection[i - 2][0], collection[i - 2][1])
+
+            # mc = ImageAnalyser._mass_center(img, i, area)
             # layout = ImageAnalyser._elongation(img, i, mc)
-            collection[i-2][0] = ImageAnalyser._area(img, i)
-            collection[i-2][1] = mc[0]
-            collection[i-2][2] = mc[1]
-            collection[i-2][3] = ImageAnalyser._perimeter(img, i)
-            collection[i-2][4] = ImageAnalyser._density(img, i, collection[i-2][3], collection[i-2][0])
+            # collection[i-2][0] = area
+            # collection[i-2][1] = mc[0]
+            # collection[i-2][2] = mc[1]
+            # collection[i-2][3] = ImageAnalyser._perimeter(img, i)
+            # collection[i-2][4] = ImageAnalyser._density(img, i, collection[i-2][3], collection[i-2][0])
             # collection[i-2][5] = layout[0]
             # collection[i-2][6] = layout[1]
         return collection
@@ -130,7 +206,7 @@ class ImageAnalyser:
                     _j = j % len(population)
                     f_value = np.sum(np.linalg.norm(signs[population]-signs[population[_j]], axis=1))
                     if f_value < f_map[i][0]:
-                        f_map[i] = (f_value, population[j])
+                        f_map[i] = (f_value, population[_j])
             for i in range(len(support)):
                 support[i] = f_map[i][1]
         return classes, support
@@ -142,22 +218,36 @@ class ImageAnalyser:
         return np.count_nonzero(img == obj_num)
 
     @staticmethod
-    def _mass_center(img, obj_num: int):
+    def _mass_center(img, obj_num: int = 1, area: int = None, normalized: bool = False):
         if type(img) is not np.ndarray:
             img = np.array(img)
         if obj_num == 0:
             raise ValueError
+        if normalized and obj_num != 1:
+            raise ValueError
         weights = np.indices((img.shape[0], img.shape[1]))
-        area = ImageAnalyser._area(img, obj_num)
-        x_mc = np.sum((img * weights[1])[img == obj_num], dtype=np.uint32) / area / obj_num
-        y_mc = np.sum((img * weights[0])[img == obj_num], dtype=np.uint32) / area / obj_num
+        if normalized:
+            if area is None:
+                area = np.sum(img)
+            x_mc = np.sum(img * weights[1], dtype=np.uint32) / area
+            y_mc = np.sum(img * weights[0], dtype=np.uint32) / area
+        else:
+            if area is None:
+                area = ImageAnalyser._area(img, obj_num)
+            x_mc = np.sum((img * weights[1])[img == obj_num], dtype=np.uint32) / area / obj_num
+            y_mc = np.sum((img * weights[0])[img == obj_num], dtype=np.uint32) / area / obj_num
         return x_mc, y_mc
 
     @staticmethod
-    def _perimeter(img, obj_num: int):
+    def _perimeter(img, obj_num: int = 1, normalized: bool = False):
         if type(img) is not np.ndarray:
             img = np.array(img)
+        if normalized and obj_num != 1:
+            raise ValueError
         origin = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=img.dtype)
+        if normalized:
+            opened = ImageAnalyser._spatial_correlation(img, origin)
+            return np.count_nonzero(np.logical_and(np.logical_not(img.astype(bool)), opened.astype(bool)))
         masked = img == obj_num
         opened = ImageAnalyser._spatial_correlation(np.where(masked, 1, 0), origin)
         return np.count_nonzero(np.logical_and(np.logical_not(masked), opened.astype(bool)))
@@ -214,6 +304,13 @@ def lab(path):
     params = [-1, 2]
     labels = [f"Binarization threshold [mean]: ", f"Number of classes [2]: "]
 
+    img = plt.imread(path)
+    # fig = plt.figure()
+    # axes = fig.add_subplot()
+    # axes.imshow(img)
+    # axes.set_axis_off()
+    # plt.show()
+
     for i in range(len(params)):
         try:
             temp = int(input(labels[i]))
@@ -221,12 +318,16 @@ def lab(path):
         except ValueError:
             continue
 
-    img = plt.imread(path)
     img_g = ImageTransformer.to_grayscale(img)
 
+    img_filtered = MinMaxFilter.minmax_filter(img_g.astype(np.uint8), (5, 5))
+    img_n = ((img_filtered - np.amin(img_filtered)) *
+             ((np.iinfo(img_filtered.dtype).max - np.iinfo(img_filtered.dtype).min) /
+              (np.amax(img_filtered) - np.amin(img_filtered)))).astype(np.uint8)
+
     if params[0] == -1:
-        params[0] = int(np.mean(img_g))
-    img_b = ImageTransformer.binarize(img_g, params[0])
+        params[0] = int(np.mean(img_n))
+    img_b = ImageTransformer.binarize(img_n, params[0])
 
     segmented, obj_count = ImageAnalyser.contours(img_b)
     if obj_count > 2:
@@ -234,7 +335,7 @@ def lab(path):
         classes, support_vectors = ImageAnalyser.cluster(sign_vectors, params[1])
 
         plot_content = [
-            img,
+            img, img_g, img_n,
             img_b,
             segmented,
         ]
@@ -258,6 +359,9 @@ def lab(path):
 if __name__ == '__main__':
     images = [p for p in pathlib.Path("img/easy").iterdir() if p.suffix in [".jpg", ".jpeg"]]
     for image in images:
-        lab(image)
+        print(f"Proceed? {image}")
+        if input("[y]/n: ") != "n":
+            lab(image)
+        # lab(image)
         if input("Quit? [y]/n: ") != "n":
             break
