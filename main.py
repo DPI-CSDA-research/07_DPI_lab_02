@@ -166,12 +166,16 @@ class ImageAnalyser:
         while np.any(p_support != support):
             p_support = np.copy(support)
             for i in range(len(support)):
-                population = np.argwhere(classes == i)
-                for j in range(p_support[i], p_support[i] + len(population)):
-                    _j = j % len(population)
-                    f_value = np.sum(np.linalg.norm(signs[population]-signs[population[_j]], axis=1))
+                population = np.argwhere(classes == i).flatten()
+                # for j in range(p_support[i], p_support[i] + len(population)):
+                    # _j = j % len(population)
+                for j in range(len(population)):
+                    f_value = np.sum(np.linalg.norm(signs[population]-signs[population[j]], axis=1))
                     if f_value < f_map[i][0]:
-                        f_map[i] = (f_value, population[_j])
+                        f_map[i] = (f_value, population[j])
+            for i in range(len(classes)):
+                dists = np.linalg.norm(signs[support] - signs[i], axis=1)
+                classes[i] = np.argmin(dists)
             for i in range(len(support)):
                 support[i] = f_map[i][1]
         return classes, support
@@ -266,15 +270,15 @@ class ImageAnalyser:
 
 
 def lab(path):
-    params = [-1, 2]
+    params = [160, 2]
     labels = [f"Binarization threshold [mean]: ", f"Number of classes [2]: "]
 
     img = plt.imread(path)
-    # fig = plt.figure()
-    # axes = fig.add_subplot()
-    # axes.imshow(img)
-    # axes.set_axis_off()
-    # plt.show()
+    fig = plt.figure()
+    axes = fig.add_subplot()
+    axes.imshow(img)
+    axes.set_axis_off()
+    plt.show()
 
     for i in range(len(params)):
         try:
@@ -284,14 +288,14 @@ def lab(path):
             continue
 
     img_g = ImageTransformer.to_grayscale(img)
+    if params[0] == -1:
+        params[0] = int(np.mean(img_g))
 
-    img_filtered = MinMaxFilter.minmax_filter(img_g.astype(np.uint8), (5, 5))
+    img_filtered = MinMaxFilter.minmax_filter(img_g.astype(np.uint8), (7, 7))
     img_n = ((img_filtered - np.amin(img_filtered)) *
              ((np.iinfo(img_filtered.dtype).max - np.iinfo(img_filtered.dtype).min) /
               (np.amax(img_filtered) - np.amin(img_filtered)))).astype(np.uint8)
 
-    if params[0] == -1:
-        params[0] = int(np.mean(img_n))
     img_b = ImageTransformer.binarize(img_n, params[0])
 
     segmented, obj_count = ImageAnalyser.contours(img_b)
@@ -322,11 +326,11 @@ def lab(path):
 
 
 if __name__ == '__main__':
-    images = [p for p in pathlib.Path("img/easy").iterdir() if p.suffix in [".jpg", ".jpeg"]]
-    for image in images:
-        print(f"Proceed? {image}")
-        if input("[y]/n: ") != "n":
-            lab(image)
-        # lab(image)
-        if input("Quit? [y]/n: ") != "n":
-            break
+    images = [p for p in pathlib.Path("img/hard").iterdir() if p.suffix in [".jpg", ".jpeg"]]
+    # for image in images:
+        # print(f"Proceed? {image}")
+        # if input("[y]/n: ") != "n":
+        #     lab(image)
+    lab(images[-1])
+        # if input("Quit? [y]/n: ") != "n":
+        #     break
