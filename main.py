@@ -116,7 +116,7 @@ class ImageAnalyser:
     def calculate_signs(img, obj_count=2):
         if type(img) is not np.ndarray:
             img = np.array(img)
-        collection = np.zeros((obj_count-2, 5), dtype=float)
+        collection = np.zeros((obj_count-2, 4), dtype=float)
 
         weights = np.indices((img.shape[0], img.shape[1]))
         for i in range(2, obj_count):
@@ -147,10 +147,13 @@ class ImageAnalyser:
             temp = np.sqrt(((mij[0] - mij[2]) ** 2 + 4 * mij[1] ** 2))
 
             collection[i - 2][3] = (mij[0] + mij[2] - temp) / (mij[0] + mij[2] + temp)
-            collection[i - 2][4] = (np.arctan(2 * mij[1] / (mij[0] - mij[2]))) / 2
-            if np.any(np.isnan(collection[i - 2][4])):
-                collection[i - 2][4] = 0
-        return collection
+            # collection[i - 2][4] = (np.arctan(2 * mij[1] / (mij[0] - mij[2]))) / 2
+            # if np.any(np.isnan(collection[i - 2][4])):
+            #     collection[i - 2][4] = 0
+        norm_vals = tuple((np.amin(collection, axis=0), np.amax(collection, axis=0)))
+        # collection = (collection - norm_vals[0]) / \
+        #              (norm_vals[1] - norm_vals[0])
+        return (collection - norm_vals[0]) / (norm_vals[1] - norm_vals[0])
 
     @staticmethod
     def cluster(signs, class_num: int):
@@ -167,17 +170,15 @@ class ImageAnalyser:
             p_support = np.copy(support)
             for i in range(len(support)):
                 population = np.argwhere(classes == i).flatten()
-                # for j in range(p_support[i], p_support[i] + len(population)):
-                    # _j = j % len(population)
                 for j in range(len(population)):
                     f_value = np.sum(np.linalg.norm(signs[population]-signs[population[j]], axis=1))
                     if f_value < f_map[i][0]:
                         f_map[i] = (f_value, population[j])
+            for i in range(len(support)):
+                support[i] = f_map[i][1]
             for i in range(len(classes)):
                 dists = np.linalg.norm(signs[support] - signs[i], axis=1)
                 classes[i] = np.argmin(dists)
-            for i in range(len(support)):
-                support[i] = f_map[i][1]
         return classes, support
 
     @staticmethod
